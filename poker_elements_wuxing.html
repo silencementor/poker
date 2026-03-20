@@ -1,0 +1,266 @@
+<style>
+*{box-sizing:border-box}
+.wrap{padding:1rem 0;font-family:var(--font-sans)}
+h2{font-size:18px;font-weight:500;color:var(--color-text-primary);margin:0 0 4px}
+.sub{font-size:13px;color:var(--color-text-secondary);margin:0 0 1.2rem}
+.selector{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1.2rem}
+.sel-btn{font-size:12px;padding:5px 14px;border-radius:99px;border:1.5px solid;cursor:pointer;font-weight:500;transition:all .15s;background:transparent}
+.diagram-wrap{background:var(--color-background-secondary);border-radius:var(--border-radius-lg);padding:12px;margin-bottom:1rem;overflow:hidden}
+.legend-row{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--color-text-secondary)}
+.ov-btn{font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+</style>
+
+<div class="wrap">
+  <h2>Ngũ Hành Poker — Sinh &amp; Khắc</h2>
+  <p class="sub">Mối quan hệ tương sinh và tương khắc giữa 6 equity archetypes. Chọn archetype để xem vị trí của nó trong chu kỳ.</p>
+  <div class="selector" id="selector"></div>
+  <div class="diagram-wrap">
+    <svg id="diagram" viewBox="0 0 600 520" style="width:100%;max-width:600px;display:block;margin:0 auto"></svg>
+    <div class="legend-row">
+      <div class="leg">
+        <svg width="32" height="12" style="flex-shrink:0"><line x1="0" y1="6" x2="22" y2="6" stroke="#22a85a" stroke-width="2"/><polygon points="22,3 30,6 22,9" fill="#22a85a"/></svg>
+        Tương Sinh (tạo điều kiện cho)
+      </div>
+      <div class="leg">
+        <svg width="36" height="12" style="flex-shrink:0"><line x1="0" y1="6" x2="26" y2="6" stroke="#e05533" stroke-width="2" stroke-dasharray="4,2"/><polygon points="26,3 34,6 26,9" fill="#e05533"/></svg>
+        Tương Khắc (chế ngự)
+      </div>
+    </div>
+  </div>
+  <button class="ov-btn" id="ov-btn" onclick="toggleOverview()">Xem toàn bộ chu kỳ ▼</button>
+  <div id="overview" style="display:none;margin-top:10px">
+    <div class="diagram-wrap">
+      <svg id="ov-svg" viewBox="0 0 600 600" style="width:100%;max-width:600px;display:block;margin:0 auto"></svg>
+    </div>
+  </div>
+</div>
+
+<script>
+const A=[
+  {id:'nut',   name:'Nut Hunter',    l1:'Nut',   l2:'Hunter',  color:'#185FA5',bg:'#E6F1FB'},
+  {id:'draw',  name:'Draw Machine',  l1:'Draw',  l2:'Machine', color:'#854F0B',bg:'#FAEEDA'},
+  {id:'fade',  name:'Fade Merchant', l1:'Fade',  l2:'Merchant',color:'#993C1D',bg:'#FAECE7'},
+  {id:'nit',   name:'Nit',           l1:'Nit',   l2:'',        color:'#5F5E5A',bg:'#F1EFE8'},
+  {id:'flip',  name:'Flip Artist',   l1:'Flip',  l2:'Artist',  color:'#534AB7',bg:'#EEEDFE'},
+  {id:'steady',name:'Steady Shark',  l1:'Steady',l2:'Shark',   color:'#0F6E56',bg:'#E1F5EE'},
+];
+
+// Sinh cycle: A[i] → A[(i+1)%6]
+// Khắc cycle: A[i] → A[(i+2)%6]
+
+const SINH=[
+  'Nut xây pot lớn → implied odds béo cho Draw',
+  'Draw completing → huỷ equity sớm của Fade',
+  'Fading liên tục river → bị ép ultra-tight',
+  'Stack pressure tight → tạo swingy spots cho Flip',
+  'Volatility → học kỷ luật và tích luỹ Steady',
+  'Kỷ luật bền vững → tiến hoá thành nut selection',
+];
+
+const KHAC=[
+  'Strength bền vững ép Fade commit chip quá sớm',
+  'Implied odds nghiền nát equity thấp của Nit',
+  'Early aggression phá chiến lược peak-seeking',
+  'Premium 3-bet squeeze medium equity range',
+  'Polarized overbet crack premiums ở peak street',
+  'Equity nhất quán deny implied odds của Draw',
+];
+
+// Side context labels below each role node
+const SIDE={
+  // shown below Ta Sinh (who Ta generates = i+1)
+  taSinh:[
+    'Pot lớn của tôi\ntạo implied odds cho Draw',
+    'Tôi completing\nphá equity của Fade',
+    'Tôi fading liên tục\nép Nit trở nên tight hơn',
+    'Tight stack của tôi\ntạo biến động cho Flip',
+    'Tôi volatile\ndạy Steady kỷ luật',
+    'Kỷ luật của tôi\nnuôi dưỡng nut selection',
+  ],
+  // shown below Sinh Ta (who generates Ta = i-1)
+  sinhTa:[
+    'Steady kỷ luật\nsinh ra nut selection',
+    'Nut pot lớn\nsinh implied odds cho tôi',
+    'Draw completing\nphá equity của tôi',
+    'Fade fading\nép tôi thành ultra-tight',
+    'Stack pressure\ntạo biến động cho tôi',
+    'Flip volatility\ndạy kỷ luật cho tôi',
+  ],
+  // shown below Ta Khắc (who Ta controls = i+2)
+  taKhac:[
+    'Tôi bet mạnh\nkhi Fade chưa kịp extract',
+    'Implied odds của tôi\nnghiền nát equity Nit',
+    'Tôi bet sớm\ntrước khi Flip spike',
+    'Premium 3-bet\nsqueeze Steady range',
+    'Tôi overbet lúc spike\ncrack Nut premiums',
+    'Equity nhất quán\ndeny implied odds Draw',
+  ],
+  // shown below Khắc Ta (who controls Ta = i-2 = i+4)
+  khacTa:[
+    'Flip polarized overbet\nép Nut commit sai',
+    'Steady deny\nimplied odds của tôi',
+    'Nut strength bền\nép tôi commit quá sớm',
+    'Draw implied odds\nnghiền equity của tôi',
+    'Fade early aggression\nphá peak strategy tôi',
+    'Nit premium 3-bet\nsqueeze range của tôi',
+  ],
+};
+
+let selected=0,ovVisible=false;
+const m=i=>((i%6)+6)%6;
+
+function buildSelector(){
+  document.getElementById('selector').innerHTML=A.map((a,i)=>
+    `<button class="sel-btn" style="border-color:${a.color};color:${i===selected?'#fff':a.color};background:${i===selected?a.color:'transparent'}" onclick="sel(${i})">${a.name}</button>`
+  ).join('');
+}
+
+function sel(i){
+  selected=i;
+  buildSelector();
+  buildDiagram();
+  if(ovVisible)buildOverview();
+}
+
+function buildDiagram(){
+  const svg=document.getElementById('diagram');
+  const i=selected;
+  const ta=A[i];
+  const taSinh=A[m(i+1)];
+  const sinhTa=A[m(i-1)];
+  const taKhac=A[m(i+2)];
+  const khacTa=A[m(i-2)];
+
+  // Layout: Ta center, corners = roles
+  const P={ta:[300,255],st:[112,112],ts:[488,112],kt:[112,398],tk:[488,398]};
+  const R=44;
+
+  svg.innerHTML=`<defs>
+    <marker id="ms" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#22a85a"/>
+    </marker>
+    <marker id="mk" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#e05533"/>
+    </marker>
+  </defs>
+  <text x="300" y="26" text-anchor="middle" font-size="12" font-weight="500" fill="${ta.color}" font-family="sans-serif" opacity="0.85">Ta: ${ta.name}</text>
+  ${arr(P.st,P.ta,R,'#22a85a',0,SINH[m(i-1)],'ms')}
+  ${arr(P.ta,P.ts,R,'#22a85a',0,SINH[i],'ms')}
+  ${arr(P.kt,P.ta,R,'#e05533',1,KHAC[m(i-2)],'mk')}
+  ${arr(P.ta,P.tk,R,'#e05533',1,KHAC[i],'mk')}
+  ${nd(P.ta,ta,R,1,'Ta',null)}
+  ${nd(P.st,sinhTa,R,0,'Sinh Ta',SIDE.sinhTa[i])}
+  ${nd(P.ts,taSinh,R,0,'Ta Sinh',SIDE.taSinh[i])}
+  ${nd(P.kt,khacTa,R,0,'Khắc Ta',SIDE.khacTa[i])}
+  ${nd(P.tk,taKhac,R,0,'Ta Khắc',SIDE.taKhac[i])}
+  `;
+}
+
+function nd(pos,arch,r,center,role,side){
+  const[x,y]=pos,sw=center?2.5:1.5;
+  const y1=arch.l2?y-7:y+4;
+  const sideLines=side?side.split('\n'):[];
+  const sideY=y+r+28;
+  const textSize=center?13:11;
+  return`<g>
+    ${center?`<circle cx="${x}" cy="${y}" r="${r+5}" fill="none" stroke="${arch.color}" stroke-width="1" opacity="0.22"/>`:''}
+    <circle cx="${x}" cy="${y}" r="${r}" fill="${arch.bg}" stroke="${arch.color}" stroke-width="${sw}"/>
+    <text x="${x}" y="${y1}" text-anchor="middle" font-size="${textSize}" font-weight="600" fill="${arch.color}" font-family="sans-serif">${arch.l1}</text>
+    ${arch.l2?`<text x="${x}" y="${y1+14}" text-anchor="middle" font-size="${textSize-1}" fill="${arch.color}" font-family="sans-serif">${arch.l2}</text>`:''}
+    <text x="${x}" y="${y+r+16}" text-anchor="middle" font-size="10" font-weight="600" fill="#999" font-family="sans-serif">${role}</text>
+    ${sideLines.map((l,li)=>`<text x="${x}" y="${sideY+li*12}" text-anchor="middle" font-size="8.5" fill="#aaa" font-family="sans-serif">${l}</text>`).join('')}
+  </g>`;
+}
+
+function arr(from,to,r,color,dashed,label,mid){
+  const[x1,y1]=from,[x2,y2]=to;
+  const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+  const ux=dx/len,uy=dy/len;
+  const sx=x1+ux*r,sy=y1+uy*r;
+  const ex=x2-ux*(r+9),ey=y2-uy*(r+9);
+  const mx=(sx+ex)/2,my=(sy+ey)/2;
+  // Offset label away from diagram center
+  const cdx=mx-300,cdy=my-255,cl=Math.sqrt(cdx*cdx+cdy*cdy)||1;
+  const lx=mx+cdx/cl*20,ly0=my+cdy/cl*20;
+  const dash=dashed?'stroke-dasharray="6,3"':'';
+  // Word-wrap at ~24 chars
+  const words=label.split(' ');
+  let lines=[],cur='';
+  for(const w of words){
+    if((cur+w).length>24){if(cur)lines.push(cur.trim());cur=w+' ';}
+    else cur+=w+' ';
+  }
+  if(cur.trim())lines.push(cur.trim());
+  const linesHtml=lines.map((l,li)=>`<text x="${lx.toFixed(1)}" y="${(ly0+(li-(lines.length-1)/2)*12).toFixed(1)}" text-anchor="middle" font-size="9" fill="${color}" font-family="sans-serif" opacity="0.9">${l}</text>`).join('');
+  return`<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="${color}" stroke-width="1.6" ${dash} marker-end="url(#${mid})"/>
+  ${linesHtml}`;
+}
+
+function buildOverview(){
+  const svg=document.getElementById('ov-svg');
+  const cx=300,cy=295,Rv=190,r=36;
+  const angs=[-90,-30,30,90,150,210];
+  const pos=angs.map(a=>[cx+Rv*Math.cos(a*Math.PI/180),cy+Rv*Math.sin(a*Math.PI/180)]);
+
+  const sArrows=A.map((_,i)=>ovArr(pos[i],pos[(i+1)%6],r,'#22a85a',0,'os')).join('');
+  const kArrows=A.map((_,i)=>ovArr(pos[i],pos[(i+2)%6],r,'#e05533',1,'ok')).join('');
+
+  // Sinh edge labels (short, at midpoint offset outward)
+  const sinhShort=['Pot lớn → Draw','Draw → huỷ Fade','Fading → Nit tight','Pressure → Flip','Volatile → Steady','Kỷ luật → Nut'];
+  const sLabels=A.map((_,i)=>{
+    const p1=pos[i],p2=pos[(i+1)%6];
+    const mx=(p1[0]+p2[0])/2,my=(p1[1]+p2[1])/2;
+    const cdx=mx-cx,cdy=my-cy,cl=Math.sqrt(cdx*cdx+cdy*cdy)||1;
+    const lx=mx+cdx/cl*28,ly=my+cdy/cl*28;
+    return`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="8" fill="#22a85a" font-family="sans-serif" opacity="0.8">${sinhShort[i]}</text>`;
+  }).join('');
+
+  const nodes=A.map((a,i)=>{
+    const[x,y]=pos[i];
+    const isSel=i===selected;
+    return`<g style="cursor:pointer" onclick="sel(${i})">
+      ${isSel?`<circle cx="${x}" cy="${y}" r="${r+6}" fill="none" stroke="${a.color}" stroke-width="2" opacity="0.35"/>`:''}
+      <circle cx="${x}" cy="${y}" r="${r}" fill="${a.bg}" stroke="${a.color}" stroke-width="${isSel?2.5:1.5}"/>
+      <text x="${x}" y="${a.l2?y-4:y+4}" text-anchor="middle" font-size="10" font-weight="600" fill="${a.color}" font-family="sans-serif">${a.l1}</text>
+      ${a.l2?`<text x="${x}" y="${y+10}" text-anchor="middle" font-size="9" fill="${a.color}" font-family="sans-serif">${a.l2}</text>`:''}
+    </g>`;
+  }).join('');
+
+  svg.innerHTML=`<defs>
+    <marker id="os" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#22a85a"/>
+    </marker>
+    <marker id="ok" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#e05533"/>
+    </marker>
+  </defs>
+  ${sArrows}${kArrows}${sLabels}${nodes}
+  <text x="${cx}" y="${cy-10}" text-anchor="middle" font-size="9.5" fill="#bbb" font-family="sans-serif">Nhấn node</text>
+  <text x="${cx}" y="${cy+8}" text-anchor="middle" font-size="9.5" fill="#bbb" font-family="sans-serif">để chọn Ta</text>
+  <rect x="16" y="16" width="68" height="38" rx="4" fill="var(--color-background-primary,#fff)" fill-opacity="0.85"/>
+  <text x="22" y="31" font-size="10" fill="#22a85a" font-family="sans-serif">— Sinh</text>
+  <text x="22" y="47" font-size="10" fill="#e05533" font-family="sans-serif">- - Khắc</text>
+  `;
+}
+
+function ovArr(from,to,r,color,dashed,mid){
+  const[x1,y1]=from,[x2,y2]=to;
+  const dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+  const ux=dx/len,uy=dy/len;
+  const sx=(x1+ux*r).toFixed(1),sy=(y1+uy*r).toFixed(1);
+  const ex=(x2-ux*(r+8)).toFixed(1),ey=(y2-uy*(r+8)).toFixed(1);
+  const dash=dashed?'stroke-dasharray="5,3"':'';
+  return`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="1.4" ${dash} marker-end="url(#${mid})" opacity="0.75"/>`;
+}
+
+function toggleOverview(){
+  ovVisible=!ovVisible;
+  document.getElementById('overview').style.display=ovVisible?'block':'none';
+  document.getElementById('ov-btn').textContent=ovVisible?'Ẩn chu kỳ ▲':'Xem toàn bộ chu kỳ ▼';
+  if(ovVisible)buildOverview();
+}
+
+buildSelector();
+buildDiagram();
+</script>
