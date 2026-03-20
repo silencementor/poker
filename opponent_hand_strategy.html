@@ -1,0 +1,224 @@
+
+<style>
+*{box-sizing:border-box}
+.wrap{padding:1rem 0;font-family:var(--font-sans)}
+h2{font-size:18px;font-weight:500;color:var(--color-text-primary);margin:0 0 4px}
+.sub{font-size:13px;color:var(--color-text-secondary);margin:0 0 1.2rem}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem}
+.panel{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px}
+.panel-label{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.slider-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.slider-row label{font-size:12px;color:var(--color-text-secondary);width:56px;flex-shrink:0}
+.slider-row input{flex:1}
+.slider-row span{font-size:12px;font-weight:500;color:var(--color-text-primary);width:34px;text-align:right}
+.chart-wrap{position:relative;height:120px;margin-top:6px}
+.presets-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.preset-btn{font-size:11px;padding:3px 9px;border-radius:99px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-secondary);cursor:pointer}
+.preset-btn:hover{background:var(--color-background-primary)}
+.preset-btn.active{border-color:#185FA5;color:#185FA5;background:#E6F1FB}
+.preset-btn.active-opp{border-color:#D85A30;color:#993C1D;background:#FAECE7}
+.matchup-card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px;margin-bottom:10px}
+.matchup-title{font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px}
+.vs-row{display:grid;grid-template-columns:1fr 24px 1fr;align-items:center;gap:6px;margin-bottom:8px}
+.edge-bar-wrap{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:hidden;margin-bottom:4px}
+.edge-bar{height:100%;border-radius:4px;transition:width .4s}
+.advice-box{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 12px;font-size:12px;color:var(--color-text-secondary);line-height:1.6;margin-top:8px}
+.exploit-grid{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:11px;padding:3px 9px;border-radius:99px;border:0.5px solid var(--color-border-secondary);color:var(--color-text-secondary);background:var(--color-background-secondary)}
+.chip.atk{border-color:#185FA5;color:#185FA5;background:#E6F1FB}
+.chip.def{border-color:#0F6E56;color:#0F6E56;background:#E1F5EE}
+.chip.trap{border-color:#854F0B;color:#854F0B;background:#FAEEDA}
+.chip.fold{border-color:#993C1D;color:#993C1D;background:#FAECE7}
+.section-sm{font-size:11px;font-weight:500;color:var(--color-text-secondary);margin:10px 0 5px}
+@media(max-width:560px){.two-col{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+  <h2>Opponent distribution counter-strategy</h2>
+  <p class="sub">Set your distribution and your opponent's — via presets or sliders — to get a tailored counter-strategy.</p>
+
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-label">Your equity</div>
+      <div class="presets-row" id="hero-presets"></div>
+      <div id="hero-sliders"></div>
+      <div class="chart-wrap"><canvas id="heroChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">Opponent equity</div>
+      <div class="presets-row" id="opp-presets"></div>
+      <div id="villain-sliders"></div>
+      <div class="chart-wrap"><canvas id="villainChart"></canvas></div>
+    </div>
+  </div>
+
+  <div id="matchup-output"></div>
+
+  <button onclick="sendPrompt('Give me a real hand example for my matchup against this opponent type')" style="margin-top:4px;font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-primary);cursor:pointer">Get a real hand example ↗</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const STREETS=['Pre','Flop','Turn','River'];
+const hero=[55,58,60,62];
+const villain=[55,58,60,62];
+let heroPresetActive=null;
+let villainPresetActive=null;
+
+const PRESETS=[
+  {name:'Crusher',vals:[72,78,80,82]},
+  {name:'Bluff artist',vals:[38,34,30,28]},
+  {name:'Draw chaser',vals:[42,54,68,78]},
+  {name:'Value fader',vals:[68,62,52,40]},
+  {name:'Swingy',vals:[50,74,55,38]},
+  {name:'Solid tight',vals:[60,62,65,67]},
+];
+
+const ARCHETYPES=[
+  {id:'nut',test:v=>v[0]>=60&&v[3]>=65&&v[3]-v[0]>=-5,name:'Nut hunter',color:'#185FA5',bg:'#E6F1FB'},
+  {id:'draw',test:v=>v[0]<52&&v[3]>=62&&v[3]-v[0]>15,name:'Draw machine',color:'#854F0B',bg:'#FAEEDA'},
+  {id:'fade',test:v=>v[0]>=58&&v[3]<=45&&v[0]-v[3]>15,name:'Fade merchant',color:'#993C1D',bg:'#FAECE7'},
+  {id:'steady',test:v=>Math.max(...v)-Math.min(...v)<12&&avg(v)>=56,name:'Steady shark',color:'#0F6E56',bg:'#E1F5EE'},
+  {id:'flip',test:v=>Math.max(...v)-Math.min(...v)>=20,name:'Flip artist',color:'#534AB7',bg:'#EEEDFE'},
+  {id:'nit',test:v=>avg(v)<48,name:'Nit',color:'#5F5E5A',bg:'#F1EFE8'},
+];
+
+function avg(v){return v.reduce((a,b)=>a+b,0)/v.length}
+function classify(v){for(const a of ARCHETYPES)if(a.test(v))return a;return ARCHETYPES[3]}
+
+const COUNTER={
+  nut_vs_nut:{title:'Battle of the premiums',summary:'Both sides have strong, stable equity. The pot becomes a contest of range advantage and position. Whoever has the range advantage on the board texture dictates action.',street_advice:['3-bet or fold. Avoid flat calling — no initiative.','Bet the range that hits harder. A-high boards favour you if your range is stronger.','Reduce bet frequency — don\'t bloat pots when equity is close.','Value bet thinly. One pair can be good. Don\'t hero fold.'],chips:[{l:'3-bet or fold pre',c:'atk'},{l:'Bet range advantage',c:'atk'},{l:'Thin value river',c:'def'},{l:'Avoid fancy play',c:'def'}]},
+  nut_vs_draw:{title:'Premiums vs draws',summary:'You have strong made hands; they need to improve. Charge them relentlessly — draws need to pay. Your edge is highest on the flop.',street_advice:['Build the pot preflop. 3-bet and get money in as favourite.','Bet large (75%+ pot). Make draws pay maximum. Do not slow-play.','Keep the pressure on. Fire blanks without hesitation.','If the draw misses, value bet. If it completes, check-call or fold.'],chips:[{l:'Charge draws hard',c:'atk'},{l:'Large flop bet',c:'atk'},{l:'Check draw-completing rivers',c:'fold'},{l:'No slow play',c:'atk'}]},
+  nut_vs_fade:{title:'Strength vs fading strength',summary:'They\'re strong early but fade. You\'re strong throughout. Let them lead and over-commit early, then re-raise. By the river you have the edge.',street_advice:['Call or 3-bet. Keep them in the pot.','Let them c-bet. Float or call.','Now raise — their equity is fading, a raise looks strong.','You likely have the best hand. Value bet or call down bluffs.'],chips:[{l:'Let them c-bet',c:'trap'},{l:'Raise turn',c:'atk'},{l:'Call river bluffs',c:'def'},{l:'Don\'t fold to size',c:'def'}]},
+  nut_vs_steady:{title:'Premiums vs solid range',summary:'Opponent is tough — consistent equity, not easily bluffed. Respect their aggression. This matchup is about small edges and discipline.',street_advice:['Stick to premiums. Don\'t call wide.','Bet for value but don\'t over-inflate.','Thin out your bluffs — they have equity to call.','Bet only for clear value. Check back marginal hands.'],chips:[{l:'Bet for value only',c:'def'},{l:'No bluff inflation',c:'def'},{l:'Respect their calls',c:'fold'},{l:'Thin value bet',c:'atk'}]},
+  nut_vs_flip:{title:'Stable vs volatile',summary:'Their equity spikes then collapses. Identify their spike street and either re-raise before it or wait until after. Their variance is your edge.',street_advice:['Flat preflop to keep their range wide.','If they lead big, consider a re-raise — their spike may not have arrived.','Apply pressure — equity often falling by now.','Call down — their big turns often become river bluffs.'],chips:[{l:'Trap their spike',c:'trap'},{l:'Re-raise flip peaks',c:'atk'},{l:'Call river overbets',c:'def'},{l:'Don\'t fold to big bets',c:'def'}]},
+  nut_vs_nit:{title:'Strength into weakness',summary:'They\'re consistently below water. Apply pressure on every street. They can\'t call profitably.',street_advice:['3-bet light. They fold weak hands.','C-bet always.','Barrel again.','Overbet to maximise vs their capped range.'],chips:[{l:'3-bet light preflop',c:'atk'},{l:'Always c-bet',c:'atk'},{l:'Triple barrel',c:'atk'},{l:'Overbet river',c:'atk'}]},
+  draw_vs_nut:{title:'Drawing into premiums',summary:'You need to improve; they don\'t. Protect your equity cheaply. Implied odds are everything — you need to hit big.',street_advice:['Call only if price is right. Fold to 3-bets without strong draws.','Call small c-bets with nut draws. Fold weak draws to big bets.','If you hit: raise. If you miss: fold to pressure.','Overbet when you complete.'],chips:[{l:'Implied odds only',c:'trap'},{l:'Fold weak draws',c:'fold'},{l:'Overbet when complete',c:'atk'},{l:'Don\'t pay big preflop',c:'fold'}]},
+  draw_vs_draw:{title:'Two draws racing',summary:'Both sides are speculative. Whoever has the nut draw wins. Position matters most — check-raise when you have fold equity.',street_advice:['Keep pot small. Both sides are guessing.','Check-raise with the stronger draw.','Semi-bluff if you still have outs.','Whoever bluffs wins if both miss.'],chips:[{l:'Semi-bluff check-raise',c:'atk'},{l:'Keep pot small',c:'def'},{l:'Identify nut draw',c:'atk'},{l:'Bluff if both miss',c:'fold'}]},
+  draw_vs_fade:{title:'Draw vs fading hand',summary:'They\'re strong early but will collapse. You\'re weak early but grow. Let them over-commit preflop and on the flop.',street_advice:['Call preflop. Let them build the pot.','Call their big c-bet with equity and implied odds.','Lead out — you\'re often ahead or close.','If you completed, overbet.'],chips:[{l:'Call and realize equity',c:'trap'},{l:'Lead the turn',c:'atk'},{l:'Overbet river',c:'atk'},{l:'Let them inflate early',c:'trap'}]},
+  draw_vs_steady:{title:'Draw vs consistent',summary:'They have solid equity throughout. Only continue when you have true nut draw equity.',street_advice:['Only enter with premium draws.','Call if price is right, fold marginal draws.','Lead if improved. Check-fold if not.','Nut hands only at showdown.'],chips:[{l:'Nut draws only',c:'def'},{l:'Fold marginal draws',c:'fold'},{l:'Check-fold blanks',c:'fold'},{l:'Lead when you hit',c:'atk'}]},
+  draw_vs_flip:{title:'Draw vs volatile',summary:'Their equity spikes and crashes. If your draw completes on their crash street, you win big.',street_advice:['Keep pot manageable preflop.','Call with nut draws to their spike bets only.','Check if still spiked. Lead if fading.','Overbet when draw completed and their equity collapsed.'],chips:[{l:'Time draw to their fade',c:'trap'},{l:'Overbet convergence',c:'atk'},{l:'Call spikes with nut draws',c:'def'},{l:'Check behind misses',c:'fold'}]},
+  draw_vs_nit:{title:'Draw into weakness',summary:'They have weak equity throughout. You can semi-bluff them off their hand on any street — completing is a bonus.',street_advice:['Raise preflop. They fold or call weak.','Semi-bluff any draw.','Barrel regardless of improvement.','Bluff river freely.'],chips:[{l:'Semi-bluff every street',c:'atk'},{l:'Fold equity is high',c:'atk'},{l:'Don\'t need to complete',c:'atk'},{l:'Bluff river',c:'atk'}]},
+  fade_vs_nut:{title:'Fading into a wall',summary:'Your hand weakens; theirs stays strong. Extract maximum early and be prepared to fold late.',street_advice:['3-bet and build pot while ahead.','Bet large — this is your best street.','Half-pot at most. Equity is slipping.','Check or fold to pressure.'],chips:[{l:'Extract on flop',c:'atk'},{l:'Reduce turn sizing',c:'def'},{l:'Check-fold river',c:'fold'},{l:'No slow play early',c:'atk'}]},
+  fade_vs_draw:{title:'Strong into a chaser',summary:'You\'re ahead but they have growing equity. Charge them maximum on early streets.',street_advice:['3-bet to build pot as favourite.','Overbet flop. Make draws pay.','Half-pot. Slow down if draw card hits.','Block bet small or check-fold to aggression.'],chips:[{l:'Overbet flop',c:'atk'},{l:'Charge draws max',c:'atk'},{l:'Block river',c:'def'},{l:'Fold to draw completion',c:'fold'}]},
+  fade_vs_fade:{title:'Both fading together',summary:'Both hands weaken as the board runs out. Whoever acts first on the turn steals the pot.',street_advice:['Raise pre — both start with high equity.','Both bet strong; pots get bloated.','This is the decision street. Lead or check-raise.','Neither hand is strong. Fold to aggression.'],chips:[{l:'Win the pot on turn',c:'atk'},{l:'Check-raise turn',c:'atk'},{l:'Both fold river',c:'fold'},{l:'Position decides winner',c:'def'}]},
+  fade_vs_steady:{title:'Fading vs consistent',summary:'You start stronger but they stay ahead by the river. Extract early and check behind late.',street_advice:['Bet flop for value.','Medium bet — equity gap is closing.','Check behind. Don\'t bloat vs their now-better hand.','Check-call only with strong hands.'],chips:[{l:'Bet flop hard',c:'atk'},{l:'Check turn behind',c:'def'},{l:'Don\'t bluff river',c:'fold'},{l:'Extract early only',c:'atk'}]},
+  fade_vs_flip:{title:'Fading vs volatile',summary:'Their equity spikes on a street where yours is fading. Bet big before their spike arrives.',street_advice:['Raise pre.','Bet large before their flop spike.','If they spiked, slow down. If collapsed, fire.','Call their bluffs — equity often gone by river.'],chips:[{l:'Bet before spike',c:'atk'},{l:'Call post-spike bluffs',c:'def'},{l:'Slow down on spike streets',c:'fold'},{l:'Lead on their fade',c:'atk'}]},
+  fade_vs_nit:{title:'Fading into a fish',summary:'They\'re weak throughout. Extract aggressively early and abandon late.',street_advice:['3-bet.','Overbet. They call with weak equity.','Continue pressure.','Small value bet only.'],chips:[{l:'Overbet flop and turn',c:'atk'},{l:'Small river value',c:'atk'},{l:'Don\'t over-bluff late',c:'def'},{l:'They pay off early',c:'atk'}]},
+  steady_vs_nut:{title:'Solid vs elite',summary:'You have consistent equity but they have more. Avoid bloating pots, play in position, pick off their thin bluffs.',street_advice:['Flat pre. Don\'t inflate vs a dominating range.','Call down. Don\'t fold too much.','Check-call. Pot control.','Call — they may be over-valuing.'],chips:[{l:'Pot control',c:'def'},{l:'Call down',c:'def'},{l:'Don\'t inflate',c:'fold'},{l:'Catch bluffs',c:'trap'}]},
+  steady_vs_draw:{title:'Solid vs speculative',summary:'You have the edge unless they complete. Bet medium, protect equity, don\'t let them draw for free.',street_advice:['Open or 3-bet.','Bet 60% pot. Charge the draw.','Keep pressure on.','If draw missed: value bet. If hit: pot control.'],chips:[{l:'Charge draws',c:'atk'},{l:'Multi-street value',c:'atk'},{l:'Pot control if draw hits',c:'def'},{l:'No free cards',c:'atk'}]},
+  steady_vs_fade:{title:'Consistent into fading',summary:'By the turn and river you likely have the edge. Let them commit early, then take control.',street_advice:['Call pre.','Let them c-bet. Float.','Lead or raise — you\'re now ahead.','Value bet. They\'re stuck with a weaker hand.'],chips:[{l:'Let them inflate early',c:'trap'},{l:'Take control turn',c:'atk'},{l:'Value bet river',c:'atk'},{l:'Float the flop',c:'trap'}]},
+  steady_vs_steady:{title:'Mirror match',summary:'Two balanced players. Position, timing, and small exploits decide the winner.',street_advice:['Slight range advantage decides pre.','Balanced bet/check strategy.','Attack when you sense weakness.','Thin value and disciplined folds.'],chips:[{l:'Use position edge',c:'atk'},{l:'Balance your range',c:'def'},{l:'Attack weakness',c:'atk'},{l:'Disciplined folds',c:'fold'}]},
+  steady_vs_flip:{title:'Consistent vs volatile',summary:'Their equity is unpredictable; yours is reliable. Wait for their spike to pass, then take over.',street_advice:['Flat pre.','If they spike, call with solid equity.','They often fold here after over-betting.','Value bet or catch their bluff.'],chips:[{l:'Let spike pass',c:'trap'},{l:'Call the spike',c:'def'},{l:'Lead after spike fades',c:'atk'},{l:'Catch river bluffs',c:'def'}]},
+  steady_vs_nit:{title:'Solid vs weak',summary:'You have consistent edge; they don\'t. Apply pressure on every street.',street_advice:['Open wide.','C-bet always.','Barrel.','Value bet or bluff.'],chips:[{l:'C-bet every flop',c:'atk'},{l:'Barrel turns',c:'atk'},{l:'Max pressure',c:'atk'},{l:'They fold often',c:'atk'}]},
+  flip_vs_nut:{title:'Volatile into stable',summary:'You spike; they don\'t move. If your spike happens, extract everything immediately. Otherwise fold.',street_advice:['Speculative call or fold.','If spiked: overbet immediately.','Continue if ahead. Give up if not.','Don\'t bluff — they call with good equity.'],chips:[{l:'Overbet your spike',c:'atk'},{l:'Give up when flat',c:'fold'},{l:'All-in when you spike',c:'atk'},{l:'Don\'t bluff stable ranges',c:'fold'}]},
+  flip_vs_draw:{title:'Volatile vs draw',summary:'Two speculative hands. Whoever hits first wins. The nut draw beats the flopped spike on the river.',street_advice:['Raise pre — both need fold equity.','Lead your spike immediately.','If they hit their draw, fold.','Whoever completes wins.'],chips:[{l:'Lead your spike',c:'atk'},{l:'Fold to draw completion',c:'fold'},{l:'Build pot on spike',c:'atk'},{l:'Give up on blanks',c:'fold'}]},
+  flip_vs_fade:{title:'Volatile vs fading',summary:'Their equity erodes; yours spikes. Let them build a big pot early, then spike and take it.',street_advice:['Call or flat. Let them build.','Spike here if possible. Raise to re-steal.','You\'re often ahead now.','Overbet or call their last bluff.'],chips:[{l:'Let them build pot',c:'trap'},{l:'Raise your spike street',c:'atk'},{l:'Call down late',c:'def'},{l:'Overbet when ahead',c:'atk'}]},
+  flip_vs_steady:{title:'Volatile vs consistent',summary:'Their floor is your ceiling when you don\'t spike. Only continue on spike streets.',street_advice:['Flat or fold pre.','Lead your spike big.','Give up if spike passed.','Check-fold most rivers.'],chips:[{l:'Only bet on spike',c:'atk'},{l:'Fold non-spike streets',c:'fold'},{l:'Don\'t multi-barrel',c:'def'},{l:'Extract spike immediately',c:'atk'}]},
+  flip_vs_flip:{title:'Two volatile hands',summary:'Pure chaos. Whoever spikes first and bets big wins.',street_advice:['Both high variance. Keep pot small pre.','Whoever spikes leads.','Spike dynamics flip. Recalculate.','One hand usually craters.'],chips:[{l:'Spike first, bet big',c:'atk'},{l:'Small pot control pre',c:'def'},{l:'Re-evaluate every street',c:'def'},{l:'High variance',c:'fold'}]},
+  flip_vs_nit:{title:'Volatile vs weak',summary:'Even without spiking you can blow them off their hand. Spike is a bonus.',street_advice:['Raise pre.','Semi-bluff.','Barrel.','They can\'t call.'],chips:[{l:'Semi-bluff often',c:'atk'},{l:'High fold equity',c:'atk'},{l:'Spike is bonus',c:'atk'},{l:'Triple barrel',c:'atk'}]},
+  nit_vs_nut:{title:'Weakness vs strength',summary:'You\'re a significant underdog throughout. Fold equity is your only weapon.',street_advice:['Fold or 3-bet bluff AXs.','Give up without fold equity.','Fold to pressure.','Rarely show up here.'],chips:[{l:'3-bet bluff only',c:'fold'},{l:'Give up to c-bets',c:'fold'},{l:'Only nut bluffs',c:'fold'},{l:'Fold often',c:'fold'}]},
+  nit_vs_draw:{title:'Weakness vs chaser',summary:'Neither of you can call bets profitably. Whoever is more aggressive wins.',street_advice:['Lead out. They have no made hand either.','C-bet — they can\'t call without completing.','Barrel any blank.','Bluff freely.'],chips:[{l:'Be the aggressor',c:'atk'},{l:'Bet blanks',c:'atk'},{l:'Neither can call',c:'fold'},{l:'Aggression wins',c:'atk'}]},
+  nit_vs_fade:{title:'Weakness into fading',summary:'They\'re strong early but fade. Your only window is after their equity collapses late.',street_advice:['Fold pre or 3-bet bluff.','Fold to c-bet.','Bluff raise here — their equity is now low.','Bluff if they check.'],chips:[{l:'Wait for their fade',c:'trap'},{l:'Bluff turn when they fade',c:'atk'},{l:'Fold early streets',c:'fold'},{l:'Attack weakness late',c:'atk'}]},
+  nit_vs_steady:{title:'Weak vs reliable',summary:'They have consistent equity; you don\'t. Fold unless you find a specific bluffing spot.',street_advice:['Fold most hands.','Fold to c-bet without outs.','Give up.','Only bluff specific textures.'],chips:[{l:'Fold often',c:'fold'},{l:'Select bluff spots',c:'atk'},{l:'Avoid multi-barrel',c:'fold'},{l:'Tighten range',c:'def'}]},
+  nit_vs_flip:{title:'Weak vs volatile',summary:'They spike but also crash. Fold to spikes; bluff their crash.',street_advice:['Fold or call small.','Fold to spike.','Lead if they\'re crashing.','Bluff if they checked turn.'],chips:[{l:'Fold to spike streets',c:'fold'},{l:'Bluff their crash',c:'atk'},{l:'Pick timing spots',c:'trap'},{l:'Attack post-spike',c:'atk'}]},
+  nit_vs_nit:{title:'Blind vs blind',summary:'Neither player has real equity. Aggression is everything — this pot belongs to whoever bets first.',street_advice:['3-bet or fold.','C-bet 100%.','Barrel.','Bluff freely.'],chips:[{l:'Pure aggression',c:'atk'},{l:'First mover wins',c:'atk'},{l:'Fold equity massive',c:'atk'},{l:'Never check-call',c:'fold'}]},
+};
+
+function getKey(h,v){return classify(h).id+'_vs_'+classify(v).id}
+function makeChart(id,data,color){
+  const dark=matchMedia('(prefers-color-scheme: dark)').matches;
+  const gc=dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)';
+  const tc=dark?'#888':'#888';
+  return new Chart(document.getElementById(id),{type:'line',data:{labels:STREETS,datasets:[{data,borderColor:color,backgroundColor:color+'22',borderWidth:2,pointBackgroundColor:color,pointRadius:4,tension:0.35,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw+'%'}}},scales:{y:{min:10,max:95,grid:{color:gc},ticks:{color:tc,font:{size:10},callback:v=>v+'%'}},x:{grid:{display:false},ticks:{color:tc,font:{size:10}}}}}});
+}
+
+function buildSliders(containerId,vals,color,onFn){
+  const el=document.getElementById(containerId);
+  el.innerHTML='';
+  STREETS.forEach((s,i)=>{
+    el.innerHTML+=`<div class="slider-row"><label>${s}</label><input type="range" min="10" max="95" step="1" value="${vals[i]}" oninput="(${onFn})(${i},this.value)"><span id="${containerId}-v${i}">${vals[i]}%</span></div>`;
+  });
+}
+
+function buildPresets(containerId,activeKey,onFn,activeClass){
+  const el=document.getElementById(containerId);
+  el.innerHTML=PRESETS.map((p,i)=>`<button class="preset-btn${activeKey===p.name?' '+activeClass:''}" onclick="(${onFn})(${i})">${p.name}</button>`).join('');
+}
+
+function renderMatchup(){
+  const key=getKey(hero,villain);
+  const mc=COUNTER[key];
+  const ha=classify(hero);
+  const va=classify(villain);
+  const edgePre=Math.round(hero[0]-villain[0]);
+  const edgeRiv=Math.round(hero[3]-villain[3]);
+  const ec=v=>v>0?'#1D9E75':v<0?'#D85A30':'#888780';
+  const ebw=v=>Math.min(100,Math.max(0,50+v));
+  let chips='';
+  if(mc)mc.chips.forEach(h=>{chips+=`<span class="chip ${h.c}">${h.l}</span>`;});
+  let rows='';
+  if(mc)mc.street_advice.forEach((a,i)=>{rows+=`<div style="display:grid;grid-template-columns:52px 1fr;gap:8px;align-items:start;margin-bottom:6px"><span style="font-size:11px;font-weight:500;color:var(--color-text-secondary);padding-top:1px">${STREETS[i]}</span><span style="font-size:12px;color:var(--color-text-secondary);line-height:1.5">${a}</span></div>`;});
+  document.getElementById('matchup-output').innerHTML=`
+    <div class="matchup-card">
+      <div class="matchup-title">${mc?mc.title:'Matchup'}</div>
+      <div class="vs-row">
+        <span style="font-size:12px;font-weight:500;padding:3px 8px;border-radius:99px;background:${ha.bg};color:${ha.color}">${ha.name}</span>
+        <span style="font-size:11px;color:var(--color-text-secondary);text-align:center">vs</span>
+        <span style="font-size:12px;font-weight:500;padding:3px 8px;border-radius:99px;background:${va.bg};color:${va.color}">${va.name}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">Pre equity edge</div><div class="edge-bar-wrap"><div class="edge-bar" style="width:${ebw(edgePre)}%;background:${ec(edgePre)}"></div></div><div style="font-size:12px;font-weight:500;color:${ec(edgePre)}">${edgePre>0?'+':''}${edgePre}%</div></div>
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">River equity edge</div><div class="edge-bar-wrap"><div class="edge-bar" style="width:${ebw(edgeRiv)}%;background:${ec(edgeRiv)}"></div></div><div style="font-size:12px;font-weight:500;color:${ec(edgeRiv)}">${edgeRiv>0?'+':''}${edgeRiv}%</div></div>
+      </div>
+      ${mc?`<div class="advice-box">${mc.summary}</div>`:''}
+      <div class="section-sm" style="margin-top:10px">Street-by-street plan</div>
+      ${rows}
+      <div class="section-sm">Key tactics</div>
+      <div class="exploit-grid">${chips}</div>
+    </div>`;
+}
+
+window.onHeroPreset=function(i){
+  heroPresetActive=PRESETS[i].name;
+  PRESETS[i].vals.forEach((v,j)=>hero[j]=v);
+  buildSliders('hero-sliders',hero,'#378ADD','window.onHeroSlide');
+  buildPresets('hero-presets',heroPresetActive,'window.onHeroPreset','active');
+  if(window._hChart){window._hChart.data.datasets[0].data=[...hero];window._hChart.update('none');}
+  renderMatchup();
+};
+window.onVillainPreset=function(i){
+  villainPresetActive=PRESETS[i].name;
+  PRESETS[i].vals.forEach((v,j)=>villain[j]=v);
+  buildSliders('villain-sliders',villain,'#D85A30','window.onVillainSlide');
+  buildPresets('opp-presets',villainPresetActive,'window.onVillainPreset','active-opp');
+  if(window._vChart){window._vChart.data.datasets[0].data=[...villain];window._vChart.update('none');}
+  renderMatchup();
+};
+window.onHeroSlide=function(i,v){
+  heroPresetActive=null;
+  hero[i]=+v;
+  document.getElementById('hero-sliders-v'+i).textContent=v+'%';
+  buildPresets('hero-presets',null,'window.onHeroPreset','active');
+  if(window._hChart){window._hChart.data.datasets[0].data=[...hero];window._hChart.update('none');}
+  renderMatchup();
+};
+window.onVillainSlide=function(i,v){
+  villainPresetActive=null;
+  villain[i]=+v;
+  document.getElementById('villain-sliders-v'+i).textContent=v+'%';
+  buildPresets('opp-presets',null,'window.onVillainPreset','active-opp');
+  if(window._vChart){window._vChart.data.datasets[0].data=[...villain];window._vChart.update('none');}
+  renderMatchup();
+};
+
+window.addEventListener('load',()=>{
+  buildPresets('hero-presets',null,'window.onHeroPreset','active');
+  buildPresets('opp-presets',null,'window.onVillainPreset','active-opp');
+  buildSliders('hero-sliders',hero,'#378ADD','window.onHeroSlide');
+  buildSliders('villain-sliders',villain,'#D85A30','window.onVillainSlide');
+  window._hChart=makeChart('heroChart',[...hero],'#378ADD');
+  window._vChart=makeChart('villainChart',[...villain],'#D85A30');
+  renderMatchup();
+});
+</script>

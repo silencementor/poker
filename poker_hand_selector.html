@@ -1,0 +1,272 @@
+
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .wrap { padding: 1rem 0; font-family: var(--font-sans); }
+  h2 { font-size: 18px; font-weight: 500; color: var(--color-text-primary); margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--color-text-secondary); margin: 0 0 1.5rem; }
+  .streets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+  .street-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 12px; }
+  .street-label { font-size: 11px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .street-value { font-size: 22px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 8px; text-align: center; }
+  .street-card input[type=range] { width: 100%; }
+  .trend-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .trend-label { font-size: 11px; color: var(--color-text-secondary); }
+  .shape-viz { background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 16px; margin-bottom: 1.5rem; }
+  .shape-title { font-size: 13px; font-weight: 500; color: var(--color-text-secondary); margin-bottom: 10px; }
+  canvas { display: block; }
+  .result-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 16px 18px; margin-bottom: 1rem; }
+  .archetype-badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 99px; margin-bottom: 10px; }
+  .archetype-name { font-size: 17px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
+  .archetype-desc { font-size: 13px; color: var(--color-text-secondary); line-height: 1.6; margin-bottom: 10px; }
+  .hand-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .hand-chip { font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 0.5px solid var(--color-border-secondary); color: var(--color-text-secondary); background: var(--color-background-secondary); }
+  .hand-chip.strong { border-color: #185FA5; color: #185FA5; background: #E6F1FB; }
+  .hand-chip.value { border-color: #0F6E56; color: #0F6E56; background: #E1F5EE; }
+  .hand-chip.draw { border-color: #854F0B; color: #854F0B; background: #FAEEDA; }
+  .hand-chip.bluff { border-color: #993C1D; color: #993C1D; background: #FAECE7; }
+  .examples-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1.5rem; }
+  .example-btn { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 10px 12px; cursor: pointer; text-align: left; }
+  .example-btn:hover { background: var(--color-background-primary); }
+  .example-btn .ex-name { font-size: 12px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 3px; }
+  .example-btn .ex-vals { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .section-label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 8px; }
+  @media (max-width: 600px) {
+    .streets { grid-template-columns: repeat(2, 1fr); }
+    .examples-row { grid-template-columns: 1fr; }
+  }
+</style>
+<div class="wrap">
+  <h2>Poker Hand Selection Compass</h2>
+  <p class="sub">Set your equity/win-rate across 4 streets. Your distribution shape determines which hands to play.</p>
+
+  <p class="section-label">Try a preset distribution</p>
+  <div class="examples-row" id="presets"></div>
+
+  <p class="section-label" style="margin-top:1rem">Your distribution</p>
+  <div class="streets" id="streets-grid"></div>
+
+  <div class="shape-viz">
+    <div class="shape-title">Equity curve across streets</div>
+    <div style="position:relative;height:160px"><canvas id="lineChart"></canvas></div>
+  </div>
+
+  <div id="result"></div>
+
+  <button onclick="sendPrompt('Explain how to apply this poker hand selection strategy at the table with real examples')" style="margin-top:0.5rem;font-size:13px;padding:6px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-primary);cursor:pointer">Ask Claude to explain at the table ↗</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const STREETS = ['Preflop','Flop','Turn','River'];
+const COLORS = ['#378ADD','#1D9E75','#BA7517','#D85A30'];
+
+const PRESETS = [
+  { name: 'Crusher', desc: 'Dominant on all streets', vals: [72, 78, 80, 82] },
+  { name: 'Bluff artist', desc: 'Weak equity, high pressure', vals: [38, 34, 30, 28] },
+  { name: 'Draw chaser', desc: 'Grows as board runs out', vals: [42, 54, 68, 78] },
+  { name: 'Value fader', desc: 'Strong early, fades late', vals: [68, 62, 52, 40] },
+  { name: 'Swingy player', desc: 'Peaks on flop, collapses', vals: [50, 74, 55, 38] },
+  { name: 'Solid tight', desc: 'Consistently above water', vals: [60, 62, 65, 67] },
+];
+
+const vals = [55, 58, 60, 62];
+let chart;
+
+const ARCHETYPES = [
+  {
+    id: 'nut_hunter',
+    name: 'Nut hunter',
+    test: v => v[0] >= 60 && v[3] >= 65 && slope(v) > 0,
+    color: '#185FA5', bg: '#E6F1FB',
+    desc: 'Your equity starts strong and improves or holds through the river. Play premium hands that have high raw equity AND retain or improve their edge as the board develops.',
+    hands: [
+      {label:'AA KK QQ', cls:'strong'},{label:'AK suited', cls:'strong'},
+      {label:'JJ TT', cls:'strong'},{label:'AQ AJ', cls:'value'},
+      {label:'Nut flush draws', cls:'draw'},{label:'Top two pair+', cls:'value'}
+    ],
+    advice: 'Bet large for value. Protect equity. Avoid marginal spots — your hand selection already gives you the edge.'
+  },
+  {
+    id: 'draw_machine',
+    name: 'Draw machine',
+    test: v => v[0] < 52 && v[3] >= 62 && v[3] - v[0] > 15,
+    color: '#854F0B', bg: '#FAEEDA',
+    desc: 'Low preflop equity that climbs sharply. You survive early cheaply then realize equity on later streets. Favor drawing hands with high card equity.',
+    hands: [
+      {label:'Suited connectors', cls:'draw'},{label:'Small pairs (set mining)', cls:'draw'},
+      {label:'Gutshots + overcards', cls:'draw'},{label:'Nut flush draws', cls:'draw'},
+      {label:'98s 87s 76s', cls:'draw'},{label:'Combo draws', cls:'strong'}
+    ],
+    advice: 'Prefer implied odds spots. Call cheap, fold if draws miss. Overbet rivers when you complete.'
+  },
+  {
+    id: 'fade_merchant',
+    name: 'Fade merchant',
+    test: v => v[0] >= 58 && v[3] <= 45 && v[0] - v[3] > 15,
+    color: '#993C1D', bg: '#FAECE7',
+    desc: 'Strong preflop but fading equity. You dominate early but your hand gets overtaken. Protect early, extract value before the turn.',
+    hands: [
+      {label:'KQ KJ QJ', cls:'value'},{label:'Overpairs (JJ-QQ)', cls:'value'},
+      {label:'TPTK situations', cls:'value'},{label:'Semi-bluff flop', cls:'bluff'},
+      {label:'Avoid slow play', cls:'bluff'},{label:'3bet light preflop', cls:'bluff'}
+    ],
+    advice: 'Extract on flop and turn. Check-raise to protect. Be willing to fold river when equity collapses.'
+  },
+  {
+    id: 'steady_shark',
+    name: 'Steady shark',
+    test: v => Math.max(...v) - Math.min(...v) < 12 && avg(v) >= 56,
+    color: '#0F6E56', bg: '#E1F5EE',
+    desc: 'Consistently positive equity with low variance across streets. Your hands hold up well throughout. Play a wide but disciplined range.',
+    hands: [
+      {label:'TT JJ QQ', cls:'strong'},{label:'AK AQ suited', cls:'strong'},
+      {label:'KQ suited', cls:'value'},{label:'Pocket pairs 77+', cls:'value'},
+      {label:'Broadway combos', cls:'value'},{label:'Dry board bluffs', cls:'bluff'}
+    ],
+    advice: 'Size medium, fire multiple streets. Your equity allows triple barrel bluffs and multi-street value.'
+  },
+  {
+    id: 'flip_artist',
+    name: 'Flip artist',
+    test: v => variance(v) > 200 || (Math.max(...v) - Math.min(...v) >= 25),
+    color: '#534AB7', bg: '#EEEDFE',
+    desc: 'High variance equity with a peak and significant swings. You spike on certain streets and collapse on others. Play polarizing hands.',
+    hands: [
+      {label:'Flopped sets', cls:'strong'},{label:'Two pair on wet boards', cls:'value'},
+      {label:'Air bluffs (high fold equity)', cls:'bluff'},{label:'Suited Ax (flush draws)', cls:'draw'},
+      {label:'Overcard + backdoor', cls:'draw'},{label:'Speculative pairs', cls:'draw'}
+    ],
+    advice: 'Identify your peak street and extract there. Have a clear plan for when equity shifts — give up or barrel?'
+  },
+  {
+    id: 'nit',
+    name: 'Nit',
+    test: v => avg(v) < 46,
+    color: '#5F5E5A', bg: '#F1EFE8',
+    desc: 'Below-water equity distribution. Your selection leaves you as an underdog. Tighten up drastically or shift to aggressive semi-bluffing.',
+    hands: [
+      {label:'Fold pre more', cls:'bluff'},{label:'Pick spots for 3bets', cls:'bluff'},
+      {label:'Only play nut draws', cls:'draw'},{label:'Avoid speculative calls', cls:'bluff'},
+      {label:'Premium pairs only', cls:'strong'},{label:'Exploit limpers', cls:'bluff'}
+    ],
+    advice: 'Do not call down. You need to bluff with initiative or fold. Look for spots where your range advantage compensates.'
+  }
+];
+
+function avg(v) { return v.reduce((a,b)=>a+b,0)/v.length; }
+function slope(v) { return v[3]-v[0]; }
+function variance(v) {
+  const m = avg(v);
+  return v.reduce((a,x)=>a+(x-m)**2,0)/v.length;
+}
+
+function classify(v) {
+  for (const a of ARCHETYPES) if (a.test(v)) return a;
+  return ARCHETYPES[3]; // default steady
+}
+
+function updateChart() {
+  if (!chart) return;
+  chart.data.datasets[0].data = [...vals];
+  chart.update('none');
+}
+
+function renderResult() {
+  const arch = classify(vals);
+  const chips = arch.hands.map(h=>`<span class="hand-chip ${h.cls}">${h.label}</span>`).join('');
+  document.getElementById('result').innerHTML = `
+    <div class="result-card">
+      <span class="archetype-badge" style="background:${arch.bg};color:${arch.color}">${arch.name}</span>
+      <div class="archetype-name">${arch.name}</div>
+      <div class="archetype-desc">${arch.desc}</div>
+      <p style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin:0 0 6px">Recommended hands</p>
+      <div class="hand-grid">${chips}</div>
+      <p style="font-size:12px;color:var(--color-text-secondary);margin:12px 0 0;padding-top:10px;border-top:0.5px solid var(--color-border-tertiary)">${arch.advice}</p>
+    </div>`;
+}
+
+function buildSliders() {
+  const grid = document.getElementById('streets-grid');
+  grid.innerHTML = '';
+  STREETS.forEach((s, i) => {
+    const prev = i > 0 ? vals[i-1] : null;
+    const trend = prev !== null ? (vals[i] > prev ? '▲' : vals[i] < prev ? '▼' : '—') : '';
+    const trendColor = vals[i] > (prev||vals[i]) ? '#1D9E75' : vals[i] < (prev||vals[i]) ? '#D85A30' : 'var(--color-text-secondary)';
+    grid.innerHTML += `
+      <div class="street-card">
+        <div class="street-label">${s}</div>
+        <div class="street-value" id="val-${i}">${vals[i]}%</div>
+        <input type="range" min="10" max="95" step="1" value="${vals[i]}" oninput="onSlide(${i},this.value)">
+        <div class="trend-bar">
+          <span style="font-size:12px;color:${trendColor}">${trend}</span>
+          <span class="trend-label">${i===0?'Starting equity':'vs prev street'}</span>
+        </div>
+      </div>`;
+  });
+}
+
+function onSlide(i, v) {
+  vals[i] = +v;
+  document.getElementById('val-'+i).textContent = v+'%';
+  updateChart();
+  buildSliders();
+  renderResult();
+}
+
+function applyPreset(p) {
+  p.vals.forEach((v,i) => vals[i] = v);
+  buildSliders();
+  updateChart();
+  renderResult();
+}
+
+function buildPresets() {
+  const el = document.getElementById('presets');
+  el.innerHTML = PRESETS.map((p,i)=>`
+    <button class="example-btn" onclick="applyPreset(PRESETS[${i}])">
+      <div class="ex-name">${p.name}</div>
+      <div class="ex-vals">${p.vals.join(' → ')}%</div>
+      <div style="font-size:11px;color:var(--color-text-secondary);margin-top:2px">${p.desc}</div>
+    </button>`).join('');
+}
+
+window.addEventListener('load', () => {
+  buildPresets();
+  buildSliders();
+
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const textColor = isDark ? '#888' : '#888';
+
+  chart = new Chart(document.getElementById('lineChart'), {
+    type: 'line',
+    data: {
+      labels: STREETS,
+      datasets: [{
+        data: [...vals],
+        borderColor: '#378ADD',
+        backgroundColor: 'rgba(55,138,221,0.08)',
+        borderWidth: 2,
+        pointBackgroundColor: COLORS,
+        pointBorderColor: COLORS,
+        pointRadius: 5,
+        tension: 0.35,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ' '+ctx.raw+'% equity' }
+      }},
+      scales: {
+        y: { min: 10, max: 95, grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11 }, callback: v => v+'%' } },
+        x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11 } } }
+      }
+    }
+  });
+
+  renderResult();
+});
+</script>
